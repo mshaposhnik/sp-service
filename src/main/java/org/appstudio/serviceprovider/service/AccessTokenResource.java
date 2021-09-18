@@ -1,6 +1,13 @@
 package org.appstudio.serviceprovider.service;
 
+import com.google.common.base.Strings;
+import org.appstudio.serviceprovider.service.dto.AccessTokenDto;
+import org.appstudio.serviceprovider.service.dto.DtoConverter;
+import org.appstudio.serviceprovider.service.storage.AccessToken;
+import org.appstudio.serviceprovider.service.storage.AccessTokenService;
+
 import javax.inject.Inject;
+import javax.validation.Valid;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
@@ -13,23 +20,29 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+
+import static org.appstudio.serviceprovider.service.dto.DtoConverter.asDto;
+import static org.appstudio.serviceprovider.service.dto.DtoConverter.asToken;
 
 @Path("token")
 public class AccessTokenResource {
   @Inject AccessTokenService accessTokenService;
-  
+
   @GET
   @Produces(MediaType.APPLICATION_JSON)
-  public Set<AccessToken> fetchAll() {
-    return accessTokenService.fetchAll();
+  public Set<AccessTokenDto> fetchAll() {
+    return accessTokenService.fetchAll().stream()
+        .map(DtoConverter::asDto)
+        .collect(Collectors.toSet());
   }
 
   @GET
   @Path("{name}")
   @Produces(MediaType.APPLICATION_JSON)
   public Response get(@PathParam("name") String name) {
-    Optional<AccessToken> token = accessTokenService.get(name);
-    if(token.isEmpty()){
+    Optional<AccessTokenDto> token = accessTokenService.get(name).map(DtoConverter::asDto);
+    if (token.isEmpty()) {
       return Response.status(Response.Status.NOT_FOUND).build();
     }
     return Response.ok().entity(token.get()).build();
@@ -38,23 +51,33 @@ public class AccessTokenResource {
   @POST
   @Produces(MediaType.APPLICATION_JSON)
   @Consumes(MediaType.APPLICATION_JSON)
-  public Response create(AccessToken accessToken) {
-    accessTokenService.create(accessToken);
-    return Response.status(Response.Status.CREATED).build();
+  public Response create(@Valid AccessTokenDto accessToken) {
+    AccessToken token = asToken(accessToken);
+    if (Strings.isNullOrEmpty(token.getName())) {
+      token.setName(NameGenerator.generate("token-", 6));
+    }
+    return Response.status(Response.Status.CREATED)
+        .entity(asDto(accessTokenService.create(token)))
+        .build();
   }
 
   @PUT
   @Path("/{name}")
   @Consumes(MediaType.APPLICATION_JSON)
   public Response update(@PathParam("name") String name, AccessToken accessToken) {
-    accessTokenService.update(accessToken);
-    return Response.noContent().build();
+    if (!name.equals(accessToken.getName())) {
+      return Response.status(Response.Status.BAD_REQUEST)
+          .entity("Token name is not matched path parameter")
+          .build();
+    }
+    accessTokenService.update(name,accessToken);
+    return Response.ok().entity(accessToken).build();
   }
 
   @DELETE
   @Path("/{name}")
   public Response delete(@PathParam("name") String name) {
     accessTokenService.delete(name);
-    return Response.status(202).entity("Token deleted successfully !!").build();
+    return Response.status(Response.Status.NO_CONTENT).entity("Token deleted successfully !!").build();
   }
 }
